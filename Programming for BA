@@ -1,0 +1,346 @@
+---
+title: "Programming for BA - Final Project - Medical Insurance Dataset"
+author: "Yuxi DU"
+date: "4/6/2022"
+output:
+  html_document:
+    toc_float: yes
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Introduction
+
+I chose the "Medical Insurance" dataset. This dataset primarily records the different characteristics among members of health insurance companies and the premiums they currently pay. We know that in order to make a profit, insurance companies should collect higher premium than the amount paid to the insured person, so how to charge different fees for different types of customers is a very critical issue for insurance companies. I want to use the "insurance" dataset to explore which behaviors and performances of insurance company members have a significant impact on their premiums, so as to help insurance companies formulate the best pricing strategy.
+
+The main methods used in this study:
+
+After analyzing the relationship between each variable and between each variable and predictor, I decided to use linear regression to predict charges. Then, there were two models created with different numbers of variables. Moreover I evaluated the two models' peformance and chose a better one. Finally, I created a prediction function based on the regression results and applied it to possible cases.
+
+# Library and Import
+
+```{r}
+library(tidyverse)
+library(MLmetrics)
+library(Hmisc)
+library(ggplot2)
+library(ggthemes)
+library(PerformanceAnalytics)
+library(readr)
+insurance <- read_csv("~/Desktop/insurance.csv")
+```
+
+# Understand the data
+
+```{r}
+head(insurance,5)
+str(insurance)
+describe(insurance)
+
+# identify duplicate value
+insurance[duplicated(insurance), ]
+
+insurance <- insurance %>% 
+  distinct()
+  
+```
+
+From the above information and combine with the backgroud of this dataset, we can get:
+
+There are 7 variables, 1338 observations in this dataset, and there is no any missing values, only one duplicate value.
+
+- Age: insurance contractor age; from 18 to 64 years old; the average age is 39; continous variable.
+
+- Sex: insurance contractor gender; including female and male; the proportions of them are almost evenly distributed; categorical variable.
+
+- BMI: body mass index, a value calculated from a person's mass (weight) and height; from 15.96 to 53.13; the average bmi is 30.66; continous variable.
+
+- Children: numbers of children insurance contractor has; from 0 to 5; most contractors have no more than 2 children; continous variable.
+
+- Smoker: show insurance contractor smoking or not; including yes and no; non-smokers are four times as likely as smokers; categorical variable.
+
+- Region: show insurance contractor's living area in the US; including four areas-northeast, southeast, southwest, northwest; the proportions of them are almost evenly distributed; categorical variable.
+
+- Charges: Expenses to be paid by insurance contractor as set by insurance company; from 1121 to 63770; the average charges is 13270; continous variable and predict value. 
+
+# Exploratory Data Analysis and Visualization
+
+## Age
+
+```{r}
+age_charges <- ggplot(insurance, aes(age, charges)) +
+  geom_jitter(color = 'green', alpha = 0.5) + theme_clean() + ggtitle("Plot of Charges by Age") 
+age_charges
+```
+
+
+We can see that as the age increases, the charges also increase accordingly. At the same time, there are three clear linear positive correlation lines in this plot, but mainly concentrated on the bottom line.
+
+## BMI
+
+```{r}
+BMI_charges <- ggplot(insurance, aes(bmi, charges)) +
+  geom_jitter(color = "orange", alpha = 0.5) + theme_clean() + ggtitle("Plot of Charges by BMI") 
+BMI_charges
+```
+
+
+Overall, charges increased with BMI. However, the trend was not as clear as age, so I decide to look more details of BMI. 
+
+## Modified BMI
+
+After I did some research, I found that BMI could be classified into the following categories
+
+- underweight: bmi<18.5；
+- healthy weight: 18.5<bmi<25；
+- overweight : 25=<bmi<30；
+- obesity: bmi>=30
+
+```{r}
+insurance<- insurance %>% 
+  mutate(bmi_cat = case_when(
+    bmi < 18.5 ~ "underweight",
+    bmi < 25 ~ "healthy weight",
+    bmi < 30 ~ "overweight",
+    bmi >= 30 ~ "obesity"
+  ))
+
+insurance$bmi_cat = factor(insurance$bmi_cat, 
+                    levels = c("underweight", 
+                               "healthy weight",
+                               "overweight",
+                               "obesity"))
+insurance %>% 
+  ggplot(aes(x = bmi, y = charges, color = bmi_cat)) +
+  geom_point() +
+  labs(title = "Plot Charges By BMI_cat",
+       x = "Bmi",
+       y = "Charges ($)") +
+  facet_wrap(~bmi_cat)
+
+insurance %>% 
+  ggplot(aes(x = age, y = charges, color = bmi_cat)) +
+  geom_point() +
+  labs(title = "Plot Charges By Age with BMI_cat",
+       x = "Age",
+       y = "Charges ($)") +
+  facet_wrap(~bmi_cat)
+```
+
+From the above plots, we can see that people with a bmi over 30 (obesity), especially order people, have higher charges than those with a bmi below 30. 
+
+## Children
+
+```{r}
+children_charges <- ggplot(insurance, aes(children, charges)) +
+  geom_jitter(aes(color = children), alpha = 0.5) + theme_clean() + ggtitle("Plot of Charges by Children") 
+children_charges
+```
+
+
+From this plot, we get that in families with the number of children from 0 to 5, the charges for clients with five children is lower.
+
+## Gender
+
+```{r}
+gender_charges <- ggplot(insurance,aes(sex,charges)) + geom_boxplot(fill = c("red", "blue")) +
+  theme_clean() + ggtitle("Plot of Charges by Gender")
+gender_charges
+```
+
+
+Charges barely differ by gender.
+
+## Smoker
+
+```{r}
+smoker_charges <- ggplot(insurance,aes(smoker,charges)) + geom_boxplot(fill = c("green", "red")) +
+  theme_clean() + ggtitle("Plot of Charges by Smoke Status")
+smoker_charges
+```
+
+
+The result, as I expected, showed that it was more likely have huge charges for smokers than non-smokers.
+
+## Region
+
+```{r}
+region_charges <- ggplot(insurance,aes(region,charges)) + geom_boxplot(fill = c(5:8)) +
+  theme_clean() + ggtitle("Plot of Charges per Region")
+region_charges
+```
+
+
+There is little difference in charges in the four regions above.
+
+Overall,by analyzing each of the above variables one by one, I initially found the much effect of age, BMI, smokers and number of children on charges. And smoker seems to be a very essential factor here.
+
+So now, I would like to check how charges varies by Age, BMI, and number of Children according to smoker.
+
+```{r}
+p1 <- ggplot(data = insurance, aes_string(x = 'age', y = 'charges', group = 'smoker', fill = 'smoker', col = 'smoker')) + 
+    geom_jitter() + 
+    geom_smooth(formula = y ~ x, method = "lm") +
+    ggtitle(glue::glue("Charges vs Age "))
+p1
+
+p2 <- ggplot(data = insurance, aes_string(x = 'bmi', y = 'charges', group = 'smoker', fill = 'smoker', col = 'smoker')) + 
+    geom_jitter() + 
+    geom_smooth(formula = y ~ x, method = "lm") +
+    ggtitle(glue::glue("Charges vs BMI "))
+p2
+
+p3 <- ggplot(data = insurance, aes_string(x = 'children', y = 'charges', group = 'smoker', fill = 'smoker', col = 'smoker')) + 
+    geom_jitter() + 
+    geom_smooth(formula = y ~ x, method = "lm") +
+    ggtitle(glue::glue("Charges vs Children "))
+p3
+
+
+```
+
+we can see that even under the influence of different variables, the charges of smokers is always higher than that of non-smokers
+
+Now, I am going to run the chart.Correlation to get an overview of correlation among variables and between each variable and charges. 
+
+## Overview of variables correlation
+
+```{r}
+insurance$sex[insurance$sex == "male"] <- 1
+insurance$sex[insurance$sex == "female"] <- 0
+
+insurance$smoker[insurance$smoker == "yes"] <- 1
+insurance$smoker[insurance$smoker == "no"] <- 0
+
+insurance<- insurance %>%
+  mutate(smoker = as.numeric(smoker)) %>%
+  mutate(sex = as.numeric(sex))
+
+df <- insurance[, c(1,2,3,4,5,7)]
+chart.Correlation(df, histogram=TRUE, pch=19)
+```
+
+
+From this plot, we can see that smoker has the highest correlation with charges. At the same time, we can see that the relationship between Age and Bmi and the relationship between Sex and Smoker are related. It makes sense. Generally speaking, older people are more likely to have a high BMI, and men are more likely to be smokers than women. But in overall, except for the predictor of charges, the correlation coefficient between the variables is very small.
+
+
+# Linear Regression Model
+
+## splitting the data into train and test
+
+```{r}
+set.seed(1)
+row.number <- sample(1:nrow(insurance), round(0.8*nrow(insurance)))
+train = insurance[row.number,]
+test = insurance[-row.number,]
+dim(train)
+dim(test)
+```
+
+## Running the first model (include all the variables)
+
+```{r}
+mod1 <- lm(charges ~ age + bmi_cat + children + smoker + region + sex, train)
+prediction1 <- predict(mod1,test)
+summary(mod1)
+```
+
+
+- From the first model we built, firstly, we can see that F(324.4) is far greater than 1. It can be concluded that there is a relationship between variables and predictor(charges) .
+
+- And as with our previous observations, Age, Bmi(obesity), Children and Smokers are the significant variables (have less p value) for charges.
+
+- Then, based on the Adjusted r-squared, we got 0.7516, which is close to 1. It indicates that our first model explains the 75.16% of the variation of charges and hence a good fit.
+
+
+## Running the second model (only include the significant variables)
+
+```{r}
+mod2<- lm(charges ~ age + bmi_cat + children + smoker, train)
+prediction2 <- predict(mod2, test)
+summary(mod2)
+```
+
+```{r}
+mae1 <- MAE(prediction1, test$charges)
+rmse1 <- RMSE(prediction1, test$charges)
+mod1_reg <- cbind("MAE" = mae1, "RMSE" = rmse1)
+mod1_reg
+
+mae2 <- MAE(prediction2, test$charges)
+rmse2 <- RMSE(prediction2, test$charges)
+mod2_reg <- cbind("MAE" = mae2, "RMSE" = rmse2)
+mod2_reg
+```
+
+- From this new model, we can see that F(541.5) is far greater than 1 and this value is more than the F value(324.4) of the previous model. It makes sense, because we removed the less significant feature.
+
+- The relationship between the number of children and charges is relatively insignificant in this new model compared to other variables, but Children still has a low P value.
+
+- For the Adjusted r-squared of model 2, we can see it a little bit higher but also quite similar to the first model's.
+
+- Then compare the RMSE of the two models, we got that RMSE2(6479.594) is higher than RMSE1(6459.722). It means model2 has a relatively larger gap between the predicted and observed values.
+
+Overall, I would say there is no big differences between the above two models, and I am going to take model 2 as our final regression model since it only has four observed values, which is more easier to execute following predict work.
+
+
+## Prediction vs. Actual values of the selected model (model 2)
+
+```{r}
+prediction<- predict(mod2, test)
+ggplot(test, aes(x = prediction, y = charges)) + geom_point(color = "black", alpha = 0.5) + geom_abline(color = "red") +
+  ggtitle("Prediction vs. Actual values")
+```
+
+
+Because each data point is quite close to the projected regression line, especially within 20000 charges, we may conclude that our model 2 fits the data reasonably well.
+
+
+# Prediction Function
+
+Based on the model2, the equation will be like: charges =  -6305.54  +265.39 *(age) +  5591.39*(bmi_obesity) + 461.11*(children) + 23422.51*(smoker).
+
+
+```{r}
+predict_charge <- function(age, bmi, children, smoker){
+    if(smoker == "yes"  && bmi < 30){
+        result =  -6305.54 + (265.39*age) + (461.11*children) + 23422.51
+    } else if(smoker == "yes" && bmi >= 30) {
+        result =  -6305.54 + (265.39*age) + (461.11*children) + (5591.39*bmi) + 23422.51
+    } else if(smoker == "no" && bmi < 30){
+        result = -6305.54 + (265.39*age) + (461.11*children)
+    } else if(smoker == "no" &&  bmi >= 30){
+        result =  -6305.54 + (265.39*age) + (461.11*children) + (5591.39*bmi)
+    } 
+    return(result)
+}
+
+```
+
+# Case study
+
+Tom:35 years old; bmi is 34.4; 0 child; smoke.
+
+We can get his charge supposed to be:
+
+```{r}
+predict_charge(35,34.4,0,"yes")
+```
+
+# Conclusion
+
+After analysis I found that smoking is the most important factor in increasing premiums. 
+
+At the same time, with the increase of age and BMI, the premium should also increase accordingly, especially when the insurer's BMI exceeds 30 (obesity).
+
+Therefore, we are not able to change our age for sure, but we can try to keep fit and avoid smoking. That's good for your wallet and your health;)
+
+
+# Reference
+
+https://www.kaggle.com/datasets/mirichoi0218/insurance?datasetId=13720&language=R
+
+https://www.calculator.net/bmi-calculator.html
